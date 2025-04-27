@@ -1,4 +1,12 @@
-import { computed, effect, inject, Injectable, signal } from '@angular/core';
+import {
+  computed,
+  effect,
+  inject,
+  Injectable,
+  linkedSignal,
+  ResourceStatus,
+  signal,
+} from '@angular/core';
 import {
   AddChecklistItem,
   ChecklistItem,
@@ -30,11 +38,10 @@ export class ChecklistItemService {
   });
 
   // selectors
-  checklistItems = computed(() => this.state().checklistItems);
   loaded = computed(() => this.state().loaded);
 
   // sources
-  private checklistItemsLoaded$ = this.storageService.loadChecklistItems();
+  loadedChecklistItems = this.storageService.loadChecklistItems();
   add$ = new Subject<AddChecklistItem>();
   toggle$ = new Subject<RemoveChecklistItem>();
   reset$ = new Subject<RemoveChecklist>();
@@ -42,82 +49,81 @@ export class ChecklistItemService {
   edit$ = new Subject<EditChecklistItem>();
   checklistRemoved$ = new Subject<RemoveChecklist>();
 
+  // state
+  checklistItems = linkedSignal({
+    source: this.loadedChecklistItems.value,
+    computation: (checklistItems) => checklistItems ?? [],
+  });
+
   constructor() {
     // reducers
-    this.checklistItemsLoaded$.pipe(takeUntilDestroyed()).subscribe({
-      next: (checklistItems) =>
-        this.state.update((state) => ({
-          ...state,
-          checklistItems,
-          loaded: true,
-        })),
-      error: (err) => this.state.update((state) => ({ ...state, error: err })),
-    });
-
     this.add$.pipe(takeUntilDestroyed()).subscribe((checklistItem) =>
-      this.state.update((state) => ({
-        ...state,
-        checklistItems: [
-          ...state.checklistItems,
-          {
-            ...checklistItem.item,
-            id: Date.now().toString(),
-            checklistId: checklistItem.checklistId,
-            checked: false,
-          },
-        ],
-      }))
+      this.checklistItems.update((checklistItems) => [
+        ...checklistItems,
+        {
+          ...checklistItem.item,
+          id: Date.now().toString(),
+          checklistId: checklistItem.checklistId,
+          checked: false,
+        },
+      ])
     );
 
-    this.toggle$.pipe(takeUntilDestroyed()).subscribe((checklistItemId) =>
-      this.state.update((state) => ({
-        ...state,
-        checklistItems: state.checklistItems.map((item) =>
-          item.id === checklistItemId
-            ? { ...item, checked: !item.checked }
-            : item
-        ),
-      }))
-    );
+    this.toggle$
+      .pipe(takeUntilDestroyed())
+      .subscribe((checklistItemId) =>
+        this.checklistItems.update((checklistItems) =>
+          checklistItems.map((item) =>
+            item.id === checklistItemId
+              ? { ...item, checked: !item.checked }
+              : item
+          )
+        )
+      );
 
-    this.reset$.pipe(takeUntilDestroyed()).subscribe((checklistId) =>
-      this.state.update((state) => ({
-        ...state,
-        checklistItems: state.checklistItems.map((item) =>
-          item.checklistId === checklistId ? { ...item, checked: false } : item
-        ),
-      }))
-    );
+    this.reset$
+      .pipe(takeUntilDestroyed())
+      .subscribe((checklistId) =>
+        this.checklistItems.update((checklistItems) =>
+          checklistItems.map((item) =>
+            item.checklistId === checklistId
+              ? { ...item, checked: false }
+              : item
+          )
+        )
+      );
 
-    this.remove$.pipe(takeUntilDestroyed()).subscribe((id) =>
-      this.state.update((state) => ({
-        ...state,
-        checklistItems: state.checklistItems.filter((item) => item.id !== id),
-      }))
-    );
+    this.remove$
+      .pipe(takeUntilDestroyed())
+      .subscribe((id) =>
+        this.checklistItems.update((checklistItems) =>
+          checklistItems.filter((item) => item.id !== id)
+        )
+      );
 
-    this.edit$.pipe(takeUntilDestroyed()).subscribe((update) =>
-      this.state.update((state) => ({
-        ...state,
-        checklistItems: state.checklistItems.map((item) =>
-          item.id === update.id ? { ...item, title: update.data.title } : item
-        ),
-      }))
-    );
+    this.edit$
+      .pipe(takeUntilDestroyed())
+      .subscribe((update) =>
+        this.checklistItems.update((checklistItems) =>
+          checklistItems.map((item) =>
+            item.id === update.id ? { ...item, title: update.data.title } : item
+          )
+        )
+      );
 
-    this.checklistRemoved$.pipe(takeUntilDestroyed()).subscribe((checklistId) =>
-      this.state.update((state) => ({
-        ...state,
-        checklistItems: state.checklistItems.filter(
-          (item) => item.checklistId !== checklistId
-        ),
-      }))
-    );
+    this.checklistRemoved$
+      .pipe(takeUntilDestroyed())
+      .subscribe((checklistId) =>
+        this.checklistItems.update((checklistItems) =>
+          checklistItems.filter((item) => item.checklistId !== checklistId)
+        )
+      );
 
     // effects
     effect(() => {
-      if (this.loaded()) {
-        this.storageService.saveChecklistItems(this.checklistItems());
+      const checklistItems = this.checklistItems();
+      if (this.loadedChecklistItems.status() === ResourceStatus.Resolved) {
+        this.storageService.saveChecklistItems(checklistItems);
       }
     });
   }

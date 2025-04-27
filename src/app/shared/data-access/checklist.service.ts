@@ -4,10 +4,21 @@ import {
   Checklist,
   EditChecklist,
 } from '../interfaces/checklist';
-import { Subject } from 'rxjs';
+import {
+  catchError,
+  concatMap,
+  EMPTY,
+  merge,
+  mergeMap,
+  startWith,
+  Subject,
+  switchMap,
+} from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { StorageService } from './storage.service';
 import { ChecklistItemService } from '../../checklist/data-access/checklist-item.service';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
 
 export interface ChecklistsState {
   checklists: Checklist[];
@@ -19,8 +30,9 @@ export interface ChecklistsState {
   providedIn: 'root',
 })
 export class ChecklistService {
-  storageService = inject(StorageService);
+  // storageService = inject(StorageService);
   checklistItemService = inject(ChecklistItemService);
+  http = inject(HttpClient);
 
   // state
   private state = signal<ChecklistsState>({
@@ -33,75 +45,60 @@ export class ChecklistService {
   checklists = computed(() => this.state().checklists);
   loaded = computed(() => this.state().loaded);
 
-  // sources
-  private checklistsLoaded$ = this.storageService.loadChecklists();
   add$ = new Subject<AddChecklist>();
   remove$ = this.checklistItemService.checklistRemoved$;
   edit$ = new Subject<EditChecklist>();
 
+  checklistAdded$ = this.add$.pipe(
+    concatMap((addChecklist) =>
+      this.http
+        .post(`${environment.API_URL}/checklists`, JSON.stringify(addChecklist))
+        .pipe(catchError((err) => this.handleError(err)))
+    )
+  );
+
+  checklistRemoved$ = this.remove$.pipe(
+    mergeMap((id) =>
+      this.http
+        .delete(`${environment.API_URL}/checklists/${id}`)
+        .pipe(catchError((err) => this.handleError(err)))
+    )
+  );
+
+  checklistEdited$ = this.edit$.pipe(
+    mergeMap((update) =>
+      this.http
+        .patch(
+          `${environment.API_URL}/checklists/${update.id}`,
+          JSON.stringify(update.data)
+        )
+        .pipe(catchError((err) => this.handleError(err)))
+    )
+  );
+
   constructor() {
     // reducers
-    this.add$.pipe(takeUntilDestroyed()).subscribe((checklist) =>
-      this.state.update((state) => ({
-        ...state,
-        checklists: [...state.checklists, this.addIdToChecklist(checklist)],
-      }))
-    );
-
-    this.checklistsLoaded$.pipe(takeUntilDestroyed()).subscribe({
-      next: (checklists) =>
+    merge(this.checklistAdded$, this.checklistEdited$, this.checklistRemoved$)
+      .pipe(
+        startWith(null),
+        switchMap(() =>
+          this.http
+            .get<Checklist[]>(`${environment.API_URL}/checklists`)
+            .pipe(catchError((err) => this.handleError(err)))
+        ),
+        takeUntilDestroyed()
+      )
+      .subscribe((checklists) =>
         this.state.update((state) => ({
           ...state,
           checklists,
           loaded: true,
-        })),
-      error: (err) => this.state.update((state) => ({ ...state, error: err })),
-    });
-
-    this.remove$.pipe(takeUntilDestroyed()).subscribe((id) =>
-      this.state.update((state) => ({
-        ...state,
-        checklists: state.checklists.filter((checklist) => checklist.id !== id),
-      }))
-    );
-
-    this.edit$.pipe(takeUntilDestroyed()).subscribe((update) =>
-      this.state.update((state) => ({
-        ...state,
-        checklists: state.checklists.map((checklist) =>
-          checklist.id === update.id
-            ? { ...checklist, title: update.data.title }
-            : checklist
-        ),
-      }))
-    );
-
-    // effects
-    effect(() => {
-      if (this.loaded()) {
-        this.storageService.saveChecklists(this.checklists());
-      }
-    });
+        }))
+      );
   }
 
-  private addIdToChecklist(checklist: AddChecklist) {
-    return {
-      ...checklist,
-      id: this.generateSlug(checklist.title),
-    };
-  }
-
-  private generateSlug(title: string) {
-    let slug = title.toLowerCase().replace(/\s+/g, '-');
-
-    const matchingSlugs = this.checklists().find(
-      (checklist) => checklist.id === slug
-    );
-
-    if (matchingSlugs) {
-      slug = slug + Date.now().toString();
-    }
-
-    return slug;
+  private handleError(err: any) {
+    this.state.update((state) => ({ ...state, error: err }));
+    return EMPTY;
   }
 }

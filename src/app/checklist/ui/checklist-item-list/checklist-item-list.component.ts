@@ -1,6 +1,7 @@
 import { Component, input, output } from '@angular/core';
 import {
   ChecklistItem,
+  EditChecklistItem,
   RemoveChecklistItem,
 } from '../../../shared/interfaces/checklist-item';
 
@@ -19,7 +20,16 @@ import {
             {{ item.title }}
           </div>
           <div>
-            <button (click)="toggle.emit(item.id)">Toggle</button>
+            <button
+              (click)="
+                toggle.emit({
+                  id: item.id,
+                  data: item
+                })
+              "
+            >
+              Toggle
+            </button>
             <button (click)="edit.emit(item)">Edit</button>
             <button (click)="delete.emit(item.id)">Delete</button>
           </div>
@@ -58,7 +68,7 @@ import {
 export class ChecklistItemListComponent {
   checklistItems = input.required<ChecklistItem[]>();
 
-  toggle = output<RemoveChecklistItem>();
+  toggle = output<EditChecklistItem>();
   delete = output<RemoveChecklistItem>();
   edit = output<ChecklistItem>();
 }

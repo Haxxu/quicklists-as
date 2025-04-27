@@ -22,6 +22,7 @@ import {
           <div>
             <button
               (click)="
+                item.checked = !item.checked;
                 toggle.emit({
                   id: item.id,
                   data: item

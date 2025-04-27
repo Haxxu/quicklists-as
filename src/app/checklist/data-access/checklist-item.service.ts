@@ -86,7 +86,7 @@ export class ChecklistItemService {
   checklistReset$ = this.reset$.pipe(
     exhaustMap((id) =>
       this.http
-        .post(`${environment.API_URL}/checklist/${id}/reset`, {})
+        .post(`${environment.API_URL}/checklists/${id}/reset`, {})
         .pipe(catchError((err) => this.handleError(err)))
     )
   );

@@ -4,10 +4,12 @@ import {
   Checklist,
   EditChecklist,
 } from '../interfaces/checklist';
-import { Subject } from 'rxjs';
+import { map, merge, Subject } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { StorageService } from './storage.service';
 import { ChecklistItemService } from '../../checklist/data-access/checklist-item.service';
+import { reducer } from '../utils/reducer';
+import { connect } from 'ngxtension/connect';
 
 export interface ChecklistsState {
   checklists: Checklist[];
@@ -38,43 +40,89 @@ export class ChecklistService {
   add$ = new Subject<AddChecklist>();
   remove$ = this.checklistItemService.checklistRemoved$;
   edit$ = new Subject<EditChecklist>();
+  private error$ = new Subject<string>();
 
   constructor() {
     // reducers
-    this.add$.pipe(takeUntilDestroyed()).subscribe((checklist) =>
-      this.state.update((state) => ({
-        ...state,
-        checklists: [...state.checklists, this.addIdToChecklist(checklist)],
-      }))
-    );
 
-    this.checklistsLoaded$.pipe(takeUntilDestroyed()).subscribe({
-      next: (checklists) =>
-        this.state.update((state) => ({
-          ...state,
-          checklists,
-          loaded: true,
-        })),
-      error: (err) => this.state.update((state) => ({ ...state, error: err })),
-    });
+    // reducer(this.add$, (checklist) =>
+    //   this.state.update((state) => ({
+    //     ...state,
+    //     checklists: [...state.checklists, this.addIdToChecklist(checklist)],
+    //   }))
+    // );
+    connect(this.state).with(this.add$, (state, checklist) => ({
+      checklists: [...state.checklists, this.addIdToChecklist(checklist)],
+    }));
 
-    this.remove$.pipe(takeUntilDestroyed()).subscribe((id) =>
-      this.state.update((state) => ({
-        ...state,
-        checklists: state.checklists.filter((checklist) => checklist.id !== id),
-      }))
-    );
+    // reducer(
+    //   this.checklistsLoaded$,
+    //   (checklists) =>
+    //     this.state.update((state) => ({
+    //       ...state,
+    //       checklists,
+    //       loaded: true,
+    //     })),
+    //   (err) => this.state.update((state) => ({ ...state, error: err }))
+    // );
+    connect(this.state).with(this.checklistsLoaded$, (state, checklists) => ({
+      checklists,
+      loaded: true,
+    }));
 
-    this.edit$.pipe(takeUntilDestroyed()).subscribe((update) =>
-      this.state.update((state) => ({
-        ...state,
-        checklists: state.checklists.map((checklist) =>
-          checklist.id === update.id
-            ? { ...checklist, title: update.data.title }
-            : checklist
-        ),
-      }))
-    );
+    // reducer(this.remove$, (id) =>
+    //   this.state.update((state) => ({
+    //     ...state,
+    //     checklists: state.checklists.filter((checklist) => checklist.id !== id),
+    //   }))
+    // );
+    connect(this.state).with(this.remove$, (state, id) => ({
+      checklists: state.checklists.filter((checklist) => checklist.id !== id),
+    }));
+
+    // reducer(this.edit$, (update) =>
+    //   this.state.update((state) => ({
+    //     ...state,
+    //     checklists: state.checklists.map((checklist) =>
+    //       checklist.id === update.id
+    //         ? { ...checklist, title: update.data.title }
+    //         : checklist
+    //     ),
+    //   }))
+    // );
+    connect(this.state).with(this.edit$, (state, update) => ({
+      checklists: state.checklists.map((checklist) =>
+        checklist.id === update.id
+          ? { ...checklist, title: update.data.title }
+          : checklist
+      ),
+    }));
+
+    // Second way
+
+    // handle error
+    // const nextState$ = merge(
+    //   this.checklistsLoaded$.pipe(
+    //     map((checklists) => ({ checklists, loaded: true }))
+    //   ),
+    //   this.error$.pipe(map((error) => ({ error })))
+    // );
+
+    // connect(this.state)
+    //   .with(nextState$)
+    //   .with(this.add$, (state, checklist) => ({
+    //     checklists: [...state.checklists, this.addIdToChecklist(checklist)],
+    //   }))
+    //   .with(this.remove$, (state, id) => ({
+    //     checklists: state.checklists.filter((checklist) => checklist.id !== id),
+    //   }))
+    //   .with(this.edit$, (state, update) => ({
+    //     checklists: state.checklists.map((checklist) =>
+    //       checklist.id === update.id
+    //         ? { ...checklist, title: update.data.title }
+    //         : checklist
+    //     ),
+    //   }));
 
     // effects
     effect(() => {
